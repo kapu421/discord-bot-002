@@ -25,7 +25,7 @@ if not BOT_TOKEN:
 
 if not CHANNEL_ID_STR:
     logger.error("CHANNEL_ID が .env に設定されていません。")
-    sys.exit("CHANNEL_ID is required in .env")
+    sys.exit("CHANNEL_ID must be an integer in .env")
 
 try:
     CHANNEL_ID = int(CHANNEL_ID_STR)
@@ -119,7 +119,7 @@ async def secret_msg(interaction: discord.Interaction, message: str):
 
 
 # =====================================================================
-# ここから「募集パネル」機能（新規追加）
+# ここから「募集パネル」機能
 # =====================================================================
 
 # メンション対象として選択できるロールID一覧（「なし」は別途選択肢として追加されます）
@@ -302,7 +302,7 @@ class RecruitView(discord.ui.View):
         if self.message is not None:
             try:
                 await self.message.edit(
-                    content="⌛ タイムアウトしました。もう一度 `/recruit` を実行してください。",
+                    content="⌛ タイムアウトしました。もう一度 `/vc` を実行してください。",
                     embed=None,
                     view=self,
                 )
@@ -362,8 +362,8 @@ class RecruitView(discord.ui.View):
         self.stop()
 
 
-@bot.tree.command(name="recruit", description="VC募集パネルを表示します（ロール・内容・VCを選んで送信）")
-async def recruit(interaction: discord.Interaction):
+@bot.tree.command(name="vc", description="VC募集パネルを表示します（ロール・内容・VCを選んで送信）")
+async def vc(interaction: discord.Interaction):
     if interaction.guild is None:
         await interaction.response.send_message("このコマンドはサーバー内でのみ使用できます。", ephemeral=True)
         return
