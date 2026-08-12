@@ -1,14 +1,3 @@
-# インストール:
-# pip install -U "discord.py>=2.0" python-dotenv
-#
-# .env の例:
-# BOT_TOKEN=your_bot_token_here
-# CHANNEL_ID=123456789012345678
-#
-# 注意:
-# - Bot は「applications.commands」スコープで招待し、メッセージ送信権限を付与してください。
-# - CHANNEL_ID は転送先のチャンネルの ID（整数）を入れてください。
-
 import os
 import logging
 import sys
@@ -43,7 +32,7 @@ except ValueError:
     logger.error("CHANNEL_ID は整数である必要があります。")
     sys.exit("CHANNEL_ID must be an integer in .env")
 
-# NGワード（必要に応じて追加してください）
+# NGワード
 NG_WORDS = ["バカ", "アホ", "ばか", "あほ"]
 
 intents = discord.Intents.default()
@@ -73,7 +62,7 @@ def quoted_block(text: str) -> str:
 @bot.tree.command(name="secret-msg", description="匿名で管理者チャンネルにメッセージを送信します")
 @app_commands.describe(message="送信したいメッセージ")
 async def secret_msg(interaction: discord.Interaction, message: str):
-    # このコマンドは実行者本人にだけ見えるレスポンスを返します（ephemeral=True）
+    # このコマンドは実行者本人にだけ見えるやつ
     try:
         # NGワードチェック
         if contains_ng_word(message):
@@ -100,7 +89,7 @@ async def secret_msg(interaction: discord.Interaction, message: str):
             await interaction.response.send_message("送信先チャンネルのタイプが不正です。管理者に連絡してください。", ephemeral=True)
             return
 
-        # 送信するメッセージ整形（送信者情報は一切含めない）
+        # 送信するメッセージ整形
         content = "📩 **匿名メッセージが届きました**\n" + quoted_block(message)
 
         # メッセージ送信
