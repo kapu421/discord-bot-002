@@ -1,19 +1,3 @@
-# インストール:
-# pip install -U "discord.py>=2.0" python-dotenv
-#
-# .env の例:
-# BOT_TOKEN=your_bot_token_here
-# CHANNEL_ID=123456789012345678
-#
-# 注意:
-# - Bot は「applications.commands」スコープで招待し、メッセージ送信権限を付与してください。
-# - CHANNEL_ID は「受信用」チャンネル（例: #みんなのお便り）の ID（整数）を入れてください。
-#   → ここに匿名メッセージが転送されます。
-# - ボタン設置用のコマンド /setup-anonymous を「送信用」チャンネル（例: #お便り箱）で実行してください。
-# - /vc コマンドは、VC募集の送信先チャンネル（RECRUIT_TARGET_CHANNEL_ID）にメッセージを送信する権限が
-#   Bot に必要です。また、VCが空になったことを検知するために Voice State の取得権限（intents）が必要ですが、
-#   これは discord.Intents.default() に含まれるため追加設定は不要です。
-
 import os
 import logging
 import sys
