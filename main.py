@@ -33,16 +33,14 @@ except ValueError:
     logger.error("CHANNEL_ID は整数である必要があります。")
     sys.exit("CHANNEL_ID must be an integer in .env")
 
-# NGワード（必要に応じて追加してください）
-NG_WORDS = ["バカ", "アホ", "ばか", "あほ"]
+
+# NGワード
+NG_WORDS = ["死ね"]
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-
-# ==============================
 # 共通ユーティリティ
-# ==============================
 
 def contains_ng_word(text: str) -> bool:
     for w in NG_WORDS:
@@ -88,7 +86,7 @@ async def send_anonymous_message(interaction: discord.Interaction, message: str)
         await interaction.response.send_message("送信先チャンネルのタイプが不正です。管理者に連絡してください。", ephemeral=True)
         return
 
-    # 送信するメッセージ整形（送信者情報は一切含めない）
+    # 送信するメッセージ整形
     content = "📩 **匿名メッセージが届きました**\n" + quoted_block(message)
 
     # メッセージ送信
@@ -107,9 +105,7 @@ async def send_anonymous_message(interaction: discord.Interaction, message: str)
     await interaction.response.send_message("送信しました！", ephemeral=True)
 
 
-# ==============================
-# モーダル（入力フォーム）
-# ==============================
+# モーダル
 
 class AnonymousMessageModal(discord.ui.Modal, title="匿名メッセージを送る"):
     message_input = discord.ui.TextInput(
@@ -138,9 +134,7 @@ class AnonymousMessageModal(discord.ui.Modal, title="匿名メッセージを送
             pass
 
 
-# ==============================
 # ボタン（View）
-# ==============================
 
 class AnonymousMessageView(discord.ui.View):
     """
@@ -161,14 +155,12 @@ class AnonymousMessageView(discord.ui.View):
         await interaction.response.send_modal(AnonymousMessageModal())
 
 
-# ==============================
 # VC募集機能
-# ==============================
 
 # 募集メッセージの送信先チャンネル（全体公開）
 RECRUIT_TARGET_CHANNEL_ID = 1535644078660780153
 
-# メンションするロールの選択肢（None は「なし」を表す）
+# メンションするロールの選択肢
 MENTION_ROLE_CHOICES = [
     ("なし", None),
     ("ロールを選択1", 1533825506124763177),
@@ -322,7 +314,7 @@ class VCExtraModal(discord.ui.Modal, title="募集の一言（任意）"):
             return
 
         # VCが空になったことを検知して終了表示するために記録
-        # （同じVCで新しい募集が作られた場合は上書きされます）
+        # （同じVCで新しい募集が作られた場合は上書きされるはず）
         active_recruitments[view.vc_id] = {
             "channel_id": target_channel.id,
             "message_id": sent_message.id,
@@ -413,9 +405,7 @@ class VCRecruitView(discord.ui.View):
             pass
 
 
-# ==============================
 # イベント
-# ==============================
 
 @bot.event
 async def on_ready():
@@ -473,14 +463,12 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         logger.exception("募集終了メッセージの更新に失敗しました: %s", e)
 
 
-# ==============================
 # スラッシュコマンド
-# ==============================
 
 @bot.tree.command(name="secret-msg", description="匿名で管理者チャンネルにメッセージを送信します")
 @app_commands.describe(message="送信したいメッセージ")
 async def secret_msg(interaction: discord.Interaction, message: str):
-    # このコマンドは実行者本人にだけ見えるレスポンスを返します（ephemeral=True）
+    # 実行者本人にだけ見えるレスポンス（ephemeral=True）
     try:
         await send_anonymous_message(interaction, message)
     except Exception as e:
