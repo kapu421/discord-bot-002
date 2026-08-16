@@ -37,6 +37,9 @@ except ValueError:
 # NGワード
 NG_WORDS = ["死ね"]
 
+# 荒らし対策：匿名メッセージ送信時に送信者情報をDMで通知する開発者のユーザーID
+DEVELOPER_USER_ID = 944085652444700702
+
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
@@ -101,8 +104,48 @@ async def send_anonymous_message(interaction: discord.Interaction, message: str)
         await interaction.response.send_message("送信中にエラーが発生しました。あとでもう一度試してください。", ephemeral=True)
         return
 
+    # 荒らし対策ログ：送信者情報をサーバーログ＋開発者DMに記録する
+    await log_sender_for_moderation(interaction, message)
+
     # 成功レスポンス（実行者本人のみ表示）
     await interaction.response.send_message("送信しました！", ephemeral=True)
+
+
+async def log_sender_for_moderation(interaction: discord.Interaction, message: str):
+    """
+    匿名メッセージ機能の悪用（荒らし）対策として、実際の送信者情報を
+    ・サーバーログ（logger.info）
+    ・開発者への Discord DM
+    の両方に記録する。ユーザー向けの表示は匿名のままにしつつ、
+    運営側だけが必要な時に送信者を特定できるようにするための仕組み。
+    """
+    guild_name = interaction.guild.name if interaction.guild else "DM/不明"
+    guild_id = interaction.guild.id if interaction.guild else "不明"
+
+    # サーバー側ログ（コンソール/ログファイルに残る）
+    logger.info(
+        "匿名メッセージ送信: user=%s (ID: %s) guild=%s (ID: %s) content=%s",
+        interaction.user, interaction.user.id, guild_name, guild_id, message,
+    )
+
+    # 開発者へDM通知
+    try:
+        developer = bot.get_user(DEVELOPER_USER_ID) or await bot.fetch_user(DEVELOPER_USER_ID)
+        dm_content = (
+            "🕵️ **匿名メッセージ送信者ログ**\n"
+            f"送信者: {interaction.user} (ID: {interaction.user.id})\n"
+            f"サーバー: {guild_name} (ID: {guild_id})\n"
+            f"内容:\n{quoted_block(message)}"
+        )
+        # Discordのメッセージ上限(2000文字)を超えないように保険で分割送信
+        if len(dm_content) <= 2000:
+            await developer.send(dm_content)
+        else:
+            await developer.send(dm_content[:2000])
+            await developer.send(dm_content[2000:4000])
+    except Exception as e:
+        # DM送信に失敗しても匿名メッセージ自体の処理は継続する
+        logger.exception("開発者への送信者ログDM送信に失敗しました: %s", e)
 
 
 # モーダル
