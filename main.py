@@ -534,7 +534,8 @@ async def setup_anonymous(interaction: discord.Interaction):
             title="📮 匿名メッセージ受付",
             description=(
                 "下のボタンを押すと入力フォームが開きます。\n"
-                "送信者情報は一切記録・表示されません。安心してご利用ください。"
+                "他のメンバーには送信者情報は表示されません。\n"
+                "※不正利用・荒らし対策のため、送信者情報は運営側の記録として保持されます。"
             ),
             color=discord.Color.blurple(),
         )
