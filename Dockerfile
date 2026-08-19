@@ -8,10 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- warp-plus のインストール ---
-# bepass-org/warp-plus はユーザー空間WireGuard実装(netstack)で動作するため、
-# /dev/net/tun や root/CAP_NET_ADMIN が無いRenderの無権限コンテナでも動作する。
-# バージョンは固定してビルドを再現可能にする（必要に応じて更新してください）。
-ARG WARP_PLUS_VERSION=v1.2.5
+# 最新タグを動的に取得してダウンロードURLの不一致エラーを回避
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "$ARCH" in \
@@ -19,8 +16,10 @@ RUN set -eux; \
         arm64) WP_ARCH="linux-arm64" ;; \
         *) echo "unsupported architecture: $ARCH" && exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/warp-plus.zip \
-        "https://github.com/bepass-org/warp-plus/releases/download/${WARP_PLUS_VERSION}/warp-plus_${WARP_PLUS_VERSION#v}_${WP_ARCH}.zip"; \
+    LATEST_TAG=$(curl -s https://api.github.com/repos/bepass-org/warp-plus/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); \
+    VERSION_NUM="${LATEST_TAG#v}"; \
+    curl -fsSL -o /tmp/warp-plus.zip "https://github.com/bepass-org/warp-plus/releases/download/${LATEST_TAG}/warp-plus_${VERSION_NUM}_${WP_ARCH}.zip"; \
+    mkdir -p /opt/warp-plus; \
     unzip -o /tmp/warp-plus.zip -d /opt/warp-plus; \
     mv /opt/warp-plus/warp-plus /usr/local/bin/warp-plus; \
     chmod +x /usr/local/bin/warp-plus; \
@@ -34,7 +33,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN chmod +x entrypoint.sh
 
-# warp-plus のキャッシュ/設定ファイルを書けるように(root権限が無くても書き込める場所)
+# warp-plus のキャッシュ/設定ファイル用ディレクトリ
 ENV WARP_PLUS_CACHE_DIR=/app/.warp-plus-cache
 RUN mkdir -p ${WARP_PLUS_CACHE_DIR}
 
