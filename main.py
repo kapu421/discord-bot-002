@@ -9,6 +9,11 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
+try:
+    from aiohttp_socks import ProxyConnector
+except ImportError:  # ローカル開発でプロキシを使わない場合は未インストールでも動くようにする
+    ProxyConnector = None
+
 from keep_alive import keep_alive
 
 # 初期設定
@@ -48,7 +53,30 @@ _last_sent_at: dict[int, float] = {}
 
 intents = discord.Intents.default()
 intents.message_content = True  # DMで送られてきたメッセージ本文・添付ファイルを匿名転送するために必要
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+# --- warp-plus 経由のローカルSOCKS5プロキシ設定 ---
+# Render等の無権限コンテナ環境では、同一コンテナ内でバックグラウンド起動した
+# warp-plus (SOCKS5: 127.0.0.1:8086) を経由してDiscord APIへ接続する。
+# USE_PROXY=false にすればプロキシなしの通常接続に戻せる（ローカル開発用）。
+USE_PROXY = os.getenv("USE_PROXY", "true").lower() not in ("false", "0", "no")
+SOCKS5_PROXY_URL = os.getenv("SOCKS5_PROXY_URL", "socks5://127.0.0.1:8086")
+
+connector = None
+if USE_PROXY:
+    if ProxyConnector is None:
+        logger.error("aiohttp-socks がインストールされていません。requirements.txt を確認してください。")
+        sys.exit("aiohttp-socks is required when USE_PROXY=true")
+    connector = ProxyConnector.from_url(SOCKS5_PROXY_URL)
+    logger.info("SOCKS5プロキシ経由でDiscordに接続します: %s", SOCKS5_PROXY_URL)
+else:
+    logger.info("プロキシなしでDiscordに接続します。")
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    help_command=None,
+    connector=connector,
+)
 
 # 共通ユーティリティ
 
@@ -727,9 +755,35 @@ async def vc_recruit(interaction: discord.Interaction):
             pass
 
 
+def wait_for_proxy(url: str, timeout: float = 30.0) -> None:
+    """
+    warp-plus のSOCKS5ポートが実際にLISTENするまで待つ。
+    keep_alive() のFlaskサーバーは既に起動済みの状態でこの待機に入るため、
+    Renderのヘルスチェックはこの待ち時間の影響を受けない。
+    """
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host, port = parsed.hostname or "127.0.0.1", parsed.port or 8086
+
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                logger.info("SOCKS5プロキシの起動を確認しました: %s:%s", host, port)
+                return
+        except OSError:
+            time.sleep(1)
+    logger.error("SOCKS5プロキシ(%s:%s)が%s秒以内に起動しませんでした。", host, port, timeout)
+    sys.exit(f"warp-plus proxy did not become ready at {url} within {timeout}s")
+
+
 if __name__ == "__main__":
     try:
-        keep_alive()  # UptimeRobotのping用にFlaskサーバーを起動
+        keep_alive()  # UptimeRobotのping用にFlaskサーバーを起動（プロキシ待機より先に開ける）
+        if USE_PROXY:
+            wait_for_proxy(SOCKS5_PROXY_URL)
         bot.run(BOT_TOKEN)
     except Exception as e:
         logger.exception("Bot の実行に失敗しました: %s", e)
