@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- warp-plus のインストール ---
-# GitHub APIから動作環境(amd64/arm64)に合ったzipの直リンクを取得してダウンロード
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     DOWNLOAD_URL=$(curl -s https://api.github.com/repos/bepass-org/warp-plus/releases/latest \
@@ -35,10 +34,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 RUN chmod +x entrypoint.sh
-
-# warp-plus のキャッシュ/設定ファイル用ディレクトリ
-ENV WARP_PLUS_CACHE_DIR=/app/.warp-plus-cache
-RUN mkdir -p ${WARP_PLUS_CACHE_DIR}
 
 ENV USE_PROXY=true
 ENV SOCKS5_PROXY_URL=socks5://127.0.0.1:8086
