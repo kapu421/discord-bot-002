@@ -1,6 +1,7 @@
 import os
 import logging
 import sys
+import time
 from typing import Optional
 
 import discord
@@ -40,7 +41,13 @@ NG_WORDS = ["死ね"]
 # 荒らし対策：匿名メッセージ送信時に送信者情報をDMで通知する開発者のユーザーID
 DEVELOPER_USER_ID = 944085652444700702
 
+# DoS/連打対策：ユーザーごとの送信クールダウン（秒）
+ANONYMOUS_MSG_COOLDOWN_SECONDS = 30
+# key: user_id, value: 最後に送信した時刻（time.monotonic()）
+_last_sent_at: dict[int, float] = {}
+
 intents = discord.Intents.default()
+intents.message_content = True  # DMで送られてきたメッセージ本文・添付ファイルを匿名転送するために必要
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # 共通ユーティリティ
@@ -64,6 +71,22 @@ async def send_anonymous_message(interaction: discord.Interaction, message: str)
     匿名メッセージとして転送する共通処理。
     スラッシュコマンドとモーダルの両方から呼び出される。
     """
+    # DoS/連打対策：クールダウンチェック（モーダル・スラッシュコマンド両方に効く）
+    user_id = interaction.user.id
+    now = time.monotonic()
+    last = _last_sent_at.get(user_id)
+    if last is not None:
+        elapsed = now - last
+        if elapsed < ANONYMOUS_MSG_COOLDOWN_SECONDS:
+            remaining = int(ANONYMOUS_MSG_COOLDOWN_SECONDS - elapsed) + 1
+            await interaction.response.send_message(
+                f"送信間隔が短すぎます。あと {remaining} 秒待ってから送信してください。",
+                ephemeral=True,
+            )
+            return
+    # 先に記録しておくことで、送信処理中に連打されても弾ける
+    _last_sent_at[user_id] = now
+
     # NGワードチェック
     if contains_ng_word(message):
         await interaction.response.send_message("不適切な言葉が含まれています", ephemeral=True)
@@ -105,27 +128,27 @@ async def send_anonymous_message(interaction: discord.Interaction, message: str)
         return
 
     # 荒らし対策ログ：送信者情報をサーバーログ＋開発者DMに記録する
-    await log_sender_for_moderation(interaction, message)
+    guild_name = interaction.guild.name if interaction.guild else "DM/不明"
+    guild_id = interaction.guild.id if interaction.guild else "不明"
+    await log_sender_for_moderation(interaction.user, guild_name, guild_id, message)
 
     # 成功レスポンス（実行者本人のみ表示）
     await interaction.response.send_message("送信しました！", ephemeral=True)
 
 
-async def log_sender_for_moderation(interaction: discord.Interaction, message: str):
+async def log_sender_for_moderation(user: discord.abc.User, guild_name: str, guild_id, content: str):
     """
     匿名メッセージ機能の悪用（荒らし）対策として、実際の送信者情報を
     ・サーバーログ（logger.info）
     ・開発者への Discord DM
     の両方に記録する。ユーザー向けの表示は匿名のままにしつつ、
     運営側だけが必要な時に送信者を特定できるようにするための仕組み。
+    スラッシュコマンド/モーダル経由・Bot DM経由のどちらからも呼べる共通関数。
     """
-    guild_name = interaction.guild.name if interaction.guild else "DM/不明"
-    guild_id = interaction.guild.id if interaction.guild else "不明"
-
     # サーバー側ログ（コンソール/ログファイルに残る）
     logger.info(
         "匿名メッセージ送信: user=%s (ID: %s) guild=%s (ID: %s) content=%s",
-        interaction.user, interaction.user.id, guild_name, guild_id, message,
+        user, user.id, guild_name, guild_id, content,
     )
 
     # 開発者へDM通知
@@ -133,9 +156,9 @@ async def log_sender_for_moderation(interaction: discord.Interaction, message: s
         developer = bot.get_user(DEVELOPER_USER_ID) or await bot.fetch_user(DEVELOPER_USER_ID)
         dm_content = (
             "🕵️ **匿名メッセージ送信者ログ**\n"
-            f"送信者: {interaction.user} (ID: {interaction.user.id})\n"
+            f"送信者: {user} (ID: {user.id})\n"
             f"サーバー: {guild_name} (ID: {guild_id})\n"
-            f"内容:\n{quoted_block(message)}"
+            f"内容:\n{quoted_block(content) if content else '（本文なし・添付ファイルのみ）'}"
         )
         # Discordのメッセージ上限(2000文字)を超えないように保険で分割送信
         if len(dm_content) <= 2000:
@@ -451,6 +474,133 @@ class VCRecruitView(discord.ui.View):
 # イベント
 
 @bot.event
+async def on_message(message: discord.Message):
+    # Bot自身/他のBotからのメッセージは無視
+    if message.author.bot:
+        return
+
+    # DM以外（サーバー内の通常メッセージ）は匿名転送の対象外
+    if not isinstance(message.channel, discord.DMChannel):
+        await bot.process_commands(message)
+        return
+
+    await handle_anonymous_dm(message)
+    await bot.process_commands(message)
+
+
+async def handle_anonymous_dm(message: discord.Message):
+    """
+    Botへ直接送られてきたDM（テキスト・画像・GIFなどの添付ファイル）を、
+    既存の匿名メッセージ機能と同じ転送先チャンネル（CHANNEL_ID）へ、
+    スラッシュコマンド/モーダル経由と同じ扱いで匿名転送する。
+    """
+    user = message.author
+    content = message.content or ""
+
+    # DoS/連打対策：スラッシュコマンド/モーダルと共通のクールダウンを適用
+    now = time.monotonic()
+    last = _last_sent_at.get(user.id)
+    if last is not None:
+        elapsed = now - last
+        if elapsed < ANONYMOUS_MSG_COOLDOWN_SECONDS:
+            remaining = int(ANONYMOUS_MSG_COOLDOWN_SECONDS - elapsed) + 1
+            try:
+                await message.channel.send(f"送信間隔が短すぎます。あと {remaining} 秒待ってから送信してください。")
+            except Exception:
+                pass
+            return
+    _last_sent_at[user.id] = now
+
+    # 本文も添付ファイルも無いメッセージ（空メッセージ等）は無視
+    if not content and not message.attachments:
+        return
+
+    # NGワードチェック
+    if content and contains_ng_word(content):
+        try:
+            await message.channel.send("不適切な言葉が含まれています")
+        except Exception:
+            pass
+        return
+
+    # 長さチェック
+    if len(content) > 1900:
+        try:
+            await message.channel.send("メッセージが長すぎます（2000文字以内にしてください）")
+        except Exception:
+            pass
+        return
+
+    # 添付ファイルのサイズチェック（Botのアップロード上限は通常25MB/ファイル）
+    MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+    for a in message.attachments:
+        if a.size and a.size > MAX_ATTACHMENT_BYTES:
+            try:
+                await message.channel.send(f"添付ファイル「{a.filename}」がサイズ上限を超えています。")
+            except Exception:
+                pass
+            return
+
+    # 転送先チャンネル取得（キャッシュに無ければ fetch）
+    channel = bot.get_channel(CHANNEL_ID)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(CHANNEL_ID)
+        except Exception as e:
+            logger.exception("転送先チャンネルの取得に失敗: %s", e)
+            try:
+                await message.channel.send("送信に失敗しました。管理者に連絡してください。")
+            except Exception:
+                pass
+            return
+
+    # 添付ファイルを実体としてダウンロード→再アップロード（URL直貼りだと期限切れ等の懸念があるため）
+    files = []
+    try:
+        for a in message.attachments:
+            files.append(await a.to_file())
+    except Exception as e:
+        logger.exception("添付ファイルの取得に失敗しました: %s", e)
+        try:
+            await message.channel.send("添付ファイルの転送に失敗しました。もう一度試してください。")
+        except Exception:
+            pass
+        return
+
+    if content:
+        text_content = "📩 **匿名メッセージが届きました（DM経由）**\n" + quoted_block(content)
+    else:
+        text_content = "📩 **匿名メッセージが届きました（DM経由・添付ファイルのみ）**"
+
+    # メッセージ送信（テキスト＋画像/GIFなどの添付ファイル）
+    try:
+        await channel.send(content=text_content, files=files if files else None)
+    except discord.Forbidden:
+        logger.exception("Bot に送信権限がありません。")
+        try:
+            await message.channel.send("ボットにチャンネルへの送信権限がありません。管理者に連絡してください。")
+        except Exception:
+            pass
+        return
+    except Exception as e:
+        logger.exception("DMメッセージ転送中にエラーが発生しました: %s", e)
+        try:
+            await message.channel.send("送信中にエラーが発生しました。あとでもう一度試してください。")
+        except Exception:
+            pass
+        return
+
+    # 荒らし対策ログ：送信者情報をサーバーログ＋開発者DMに記録する
+    await log_sender_for_moderation(user, "DM（サーバー外から送信）", "N/A", content)
+
+    # 成功レスポンス（送信者本人のDMにのみ返信）
+    try:
+        await message.channel.send("送信しました！")
+    except Exception:
+        pass
+
+
+@bot.event
 async def on_ready():
     try:
         # 永続Viewを登録（Bot再起動後もボタンを押せるようにする）
@@ -534,8 +684,8 @@ async def setup_anonymous(interaction: discord.Interaction):
             title="📮 匿名メッセージ受付",
             description=(
                 "下のボタンを押すと入力フォームが開きます。\n"
-                "他のメンバーには送信者情報は表示されません。\n"
-                "※不正利用・荒らし対策のため、送信者情報は運営側の記録として保持されます。"
+                "画像やGIFを送りたい場合は、このBotに直接DMを送ってください（そのまま匿名で転送されます）。\n"
+                "送信者情報は一切記録・表示されません。安心してご利用ください。"
             ),
             color=discord.Color.blurple(),
         )
