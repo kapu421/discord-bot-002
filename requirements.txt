@@ -1,3 +1,4 @@
-discord.py>=2.0
-python-dotenv
-flask
+discord.py>=2.4.0
+python-dotenv>=1.0.1
+aiohttp-socks>=0.9.1
+Flask>=3.0.0
