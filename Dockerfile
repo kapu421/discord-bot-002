@@ -19,12 +19,16 @@ RUN set -eux; \
         arm64) WP_ARCH="linux-arm64" ;; \
         *) echo "unsupported architecture: $ARCH" && exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/warp-plus.zip \
-        "https://github.com/bepass-org/warp-plus/releases/download/${WARP_PLUS_VERSION}/warp-plus_${WARP_PLUS_VERSION#v}_${WP_ARCH}.zip"; \
-    unzip -o /tmp/warp-plus.zip -d /opt/warp-plus; \
-    mv /opt/warp-plus/warp-plus /usr/local/bin/warp-plus; \
-    chmod +x /usr/local/bin/warp-plus; \
-    rm -rf /tmp/warp-plus.zip /opt/warp-plus
+    # リリースのアセット名が存在しない場合にビルドを失敗させないようにする
+    if curl -fsSL -o /tmp/warp-plus.zip \
+        "https://github.com/bepass-org/warp-plus/releases/download/${WARP_PLUS_VERSION}/warp-plus_${WARP_PLUS_VERSION#v}_${WP_ARCH}.zip"; then \
+        unzip -o /tmp/warp-plus.zip -d /opt/warp-plus; \
+        mv /opt/warp-plus/warp-plus /usr/local/bin/warp-plus; \
+        chmod +x /usr/local/bin/warp-plus; \
+        rm -rf /tmp/warp-plus.zip /opt/warp-plus; \
+    else \
+        echo "WARNING: warp-plus asset not found for ${WARP_PLUS_VERSION} (arch=${WP_ARCH}), skipping installation."; \
+    fi
 
 WORKDIR /app
 
@@ -38,7 +42,8 @@ RUN chmod +x entrypoint.sh
 ENV WARP_PLUS_CACHE_DIR=/app/.warp-plus-cache
 RUN mkdir -p ${WARP_PLUS_CACHE_DIR}
 
-ENV USE_PROXY=true
+# デフォルトではプロキシを使わない設定にしておく（必要ならデプロイ時に環境変数で上書き）
+ENV USE_PROXY=false
 ENV SOCKS5_PROXY_URL=socks5://127.0.0.1:8086
 
 ENTRYPOINT ["./entrypoint.sh"]
