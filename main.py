@@ -183,7 +183,7 @@ async def log_sender_for_moderation(user: discord.abc.User, guild_name: str, gui
     try:
         developer = bot.get_user(DEVELOPER_USER_ID) or await bot.fetch_user(DEVELOPER_USER_ID)
         dm_content = (
-            "**secret_mes_log**\n"
+            "secret_mes_log\n"
             f"from: {user} (ID: {user.id})\n"
             f"server: {guild_name} (ID: {guild_id})\n"
             f"info:\n{quoted_block(content) if content else '（本文なし・添付ファイルのみ）'}"
